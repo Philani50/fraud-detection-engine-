@@ -1,0 +1,55 @@
+##################################################################################
+# Your Config
+##################################################################################
+
+app:
+  encryption:
+    key: ${APP_ENCRYPTION_KEY:test-aes-256-key-32byteslong!!!!!}
+  http-configs:
+    rest:
+      client-profile-service:
+        url: http://localhost:9091
+        connect-timeout: PT2S
+        read-timeout: PT3S
+  fraud-rules:
+    rule001-enabled: true
+    rule002-enabled: true
+    rule003-enabled: true
+    rule004-enabled: true
+    rule005-enabled: true
+    rule006-enabled: true
+
+##################################################################################
+# Spring Config
+##################################################################################
+spring:
+  application:
+    name: @project.artifactId@
+  datasource:
+    url: jdbc:h2:mem:frauddetectionengine;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password: ""
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED:false}
+      path: /h2-console
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:9090/realms/fraud-detection-engine}
+          audiences: ${JWT_AUDIENCE:fraud-detection-engine}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics

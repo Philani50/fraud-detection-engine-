@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Fluentbit Profile -->
+    <springProfile name="fluentbit">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <include resource="fluency.xml"/>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FLUENCY"/>
+        </root>
+    </springProfile>
+
+    <!-- Structured Logs Profile -->
+    <springProfile name="structuredconsole">
+        <include resource="structuredconsole.xml"/>
+
+        <root level="INFO">
+            <appender-ref ref="jsonConsoleAppender"/>
+        </root>
+    </springProfile>
+
+    <!-- Default fallback logging, i.e. when not structuredconsole or fluentbit profiles -->
+    <springProfile name="!(structuredconsole|fluentbit)">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>
