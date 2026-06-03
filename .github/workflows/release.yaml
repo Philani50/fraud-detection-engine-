@@ -1,0 +1,149 @@
+name: Release Workflow
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-release:
+    name: Prepare Release Version
+    runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/develop'
+    outputs:
+      release_version: ${{ steps.release-version.outputs.release_version }}
+      next_version: ${{ steps.calculate-next.outputs.next_version }}
+      release_branch: ${{ steps.create-release-branch.outputs.release_branch }}
+      develop_branch: ${{ steps.calculate-next.outputs.develop_branch }}
+    steps:
+      - name: Checkout develop branch
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create release-$RELEASE_VERSION branch using version without SNAPSHOT
+        id: release-branch
+        run: |
+          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [[ ! "$CURRENT_VERSION" =~ -SNAPSHOT$ ]]; then
+            echo "Error: Current version does not contain SNAPSHOT suffix"
+            exit 1
+          fi
+
+          # Use Maven build-helper to parse version and remove SNAPSHOT
+          mvn build-helper:parse-version versions:set \
+            -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion} \
+            versions:commit
+
+          # Get release version
+          RELEASE_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "Release version: $RELEASE_VERSION"
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+          # Create release branch
+          RELEASE_BRANCH="release-$RELEASE_VERSION"
+          git checkout -b $RELEASE_BRANCH
+          echo "Created release branch: $RELEASE_BRANCH"
+          echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
+
+          # Commit and push release version changes
+          git add pom.xml
+          git commit -m "Release version $RELEASE_VERSION"
+          git push origin $RELEASE_BRANCH
+          echo "Pushed release branch: $RELEASE_BRANCH"
+
+      - name: Validate release branch exists
+        id: validate-release-branch
+        run: |
+          # Check if release branch exists on remote
+          if ! git ls-remote --heads origin release | grep -q 'refs/heads/release'; then
+            echo "Error: 'release' branch does not exist on remote"
+            echo "Please create the 'release' branch before running this workflow"
+            exit 1
+          fi
+          echo "Validated: 'release' branch exists"
+
+      - name: Create Pull Request to release
+        id: create-release-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release-branch.outputs.release_version }}
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.release_branch }}
+        run: |
+          # Create PR to release
+          PR_URL=$(gh pr create \
+            --base release \
+            --head $RELEASE_BRANCH \
+            --title "Release $RELEASE_VERSION" \
+            --body "Release version $RELEASE_VERSION
+
+          This PR contains the release version without SNAPSHOT suffix.
+
+          **Release Version:** $RELEASE_VERSION
+
+          A separate PR will be created to update develop with the next development version.")
+
+          PR_NUMBER=$(echo $PR_URL | grep -oP '\d+$')
+          echo "Created PR #$PR_NUMBER: $PR_URL"
+
+      - name: Create develop-$NEXT_VERSION branch
+        id: develop-branch
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.release_branch }}
+        run: |
+          # Stay on release branch
+          # Use Maven build-helper to parse version and set next version
+          mvn build-helper:parse-version versions:set \
+            -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-SNAPSHOT \
+            versions:commit
+
+          # Get next development version
+          NEXT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "Next version: $NEXT_VERSION"
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+
+          # Create develop branch
+          DEVELOP_BRANCH="develop-$NEXT_VERSION"
+          git checkout -b $DEVELOP_BRANCH
+          echo "develop_branch=$DEVELOP_BRANCH" >> $GITHUB_OUTPUT
+          echo "Created develop branch $DEVELOP_BRANCH from $RELEASE_BRANCH"
+
+          # Commit and push next development version
+          git add pom.xml
+          git commit -m "Development version $NEXT_VERSION"
+          git push origin $DEVELOP_BRANCH
+          echo "Pushed develop branch: $DEVELOP_BRANCH"
+
+      - name: Create Pull Request to develop
+        id: create-develop-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release-branch.outputs.release_version }}
+          NEXT_VERSION: ${{ steps.develop-branch.outputs.next_version }}
+          DEVELOP_BRANCH: ${{ steps.develop-branch.outputs.develop_branch }}
+        run: |
+          # Create PR to develop
+          PR_URL=$(gh pr create \
+            --base develop \
+            --head $DEVELOP_BRANCH \
+            --title "Prepare next development version $NEXT_VERSION" \
+            --body "Prepare next development version $NEXT_VERSION
+
+          This PR updates the version in pom.xml for the next development cycle.
+
+          **Current Release Version:** $RELEASE_VERSION
+          **Next Development Version:** $NEXT_VERSION")
+
+          PR_NUMBER=$(echo $PR_URL | grep -oP '\d+$')
+          echo "Created PR #$PR_NUMBER: $PR_URL"
