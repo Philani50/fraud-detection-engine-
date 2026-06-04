@@ -77,3 +77,6 @@ aql/
 
 ### Duplicate migrations ###
 migration/
+
+### Local docs ###
+docs/
